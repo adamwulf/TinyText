@@ -43,19 +43,16 @@ struct TinyTextWidgetView: View {
                 Text("Open TinyText to write")
                     .foregroundStyle(.secondary)
                     .font(.body)
-            } else if entry.wrapLines {
-                Text(entry.text)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(entry.text)
-                        .font(.body)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(entry.text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
+                        Text(String(line))
+                            .font(.body)
+                            .lineLimit(entry.wrapLines ? nil : 1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
                 }
-                .disabled(true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
