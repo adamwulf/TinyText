@@ -42,12 +42,12 @@ struct TinyTextWidgetView: View {
             if entry.text.isEmpty {
                 Text("Open TinyText to write")
                     .foregroundStyle(.secondary)
-                    .font(.body)
+                    .font(.system(size: 14))
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(entry.text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
                         Text(String(line))
-                            .font(.body)
+                            .font(.system(size: 14))
                             .lineLimit(entry.wrapLines ? nil : 1)
                             .truncationMode(.tail)
                     }
