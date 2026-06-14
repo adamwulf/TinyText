@@ -1,0 +1,8 @@
+// SharedVersion.xcconfig
+// Single source of truth for app version numbers, included by each target's
+// *-Shared config. Keeping these in one file means a version bump is a
+// one-line edit and (with apple-generic versioning) is agvtool-compatible.
+
+VERSIONING_SYSTEM = apple-generic
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
