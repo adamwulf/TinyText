@@ -36,5 +36,5 @@ ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES
 
 // Generated Info.plist + extension keys
 GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_FILE = App/TinyTextWidget/Info.plist
 INFOPLIST_KEY_CFBundleDisplayName = TinyText
-INFOPLIST_KEY_NSExtensionPointIdentifier = com.apple.widgetkit-extension
