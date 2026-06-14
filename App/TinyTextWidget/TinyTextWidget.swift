@@ -43,12 +43,17 @@ struct TinyTextWidgetView: View {
                 Text("Open TinyText to write")
                     .foregroundStyle(.secondary)
                     .font(.system(size: 14))
+            } else if entry.wrapLines {
+                Text(entry.text)
+                    .font(.system(size: 14))
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(entry.text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
                         Text(String(line))
                             .font(.system(size: 14))
-                            .lineLimit(entry.wrapLines ? nil : 1)
+                            .lineLimit(1)
                             .truncationMode(.tail)
                     }
                     Spacer(minLength: 0)
