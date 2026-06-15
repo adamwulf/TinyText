@@ -8,7 +8,7 @@ struct RootView: View {
     private let externalChange = NotificationCenter.default.publisher(
         for: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
         object: NSUbiquitousKeyValueStore.default
-    )
+    ).receive(on: DispatchQueue.main)
 
     var body: some View {
         TextEditor(text: $text)
