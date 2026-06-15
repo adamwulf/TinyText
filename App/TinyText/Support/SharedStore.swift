@@ -14,12 +14,22 @@ enum SharedStore {
     }
 
     static func start() {
-        if let cloudText = cloud.string(forKey: textKey),
-           cloudText != defaults.string(forKey: textKey) {
-            defaults.set(cloudText, forKey: textKey)
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        refreshFromCloud()
+    }
+
+    // Reads whatever NSUbiquitousKeyValueStore has cached locally and adopts it
+    // if newer than our App Group copy. synchronize() does not fetch from iCloud —
+    // remote updates arrive via APNs to the iCloud daemon independently. Calling
+    // this from a BGAppRefreshTask gives the app a chance to pick up values the
+    // daemon received while the app was suspended, so the widget stays current.
+    static func refreshFromCloud() {
         cloud.synchronize()
+        guard let cloudText = cloud.string(forKey: textKey),
+              cloudText != defaults.string(forKey: textKey) else {
+            return
+        }
+        defaults.set(cloudText, forKey: textKey)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     static func loadText() -> String {
