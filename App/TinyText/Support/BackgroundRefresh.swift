@@ -2,6 +2,7 @@ import BackgroundTasks
 import Foundation
 
 enum BackgroundRefresh {
+    // Must match the BGTaskSchedulerPermittedIdentifiers entry in Info.plist.
     static let taskIdentifier = "com.milestonemade.tinytext.sync"
 
     private static let minimumInterval: TimeInterval = 60 * 60
@@ -11,7 +12,11 @@ enum BackgroundRefresh {
             forTaskWithIdentifier: taskIdentifier,
             using: nil
         ) { task in
-            handle(task: task as! BGAppRefreshTask)
+            guard let task = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            handle(task: task)
         }
     }
 
@@ -27,12 +32,10 @@ enum BackgroundRefresh {
     }
 
     private static func handle(task: BGAppRefreshTask) {
-        schedule()
-
         task.expirationHandler = {
             task.setTaskCompleted(success: false)
         }
-
+        schedule()
         SharedStore.refreshFromCloud()
         task.setTaskCompleted(success: true)
     }
