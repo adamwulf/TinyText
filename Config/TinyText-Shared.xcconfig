@@ -36,6 +36,7 @@ ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
 // Generated Info.plist + its keys
 GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_KEY_CFBundleDisplayName = TinyText
+INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
 INFOPLIST_KEY_NSHumanReadableCopyright =
 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
