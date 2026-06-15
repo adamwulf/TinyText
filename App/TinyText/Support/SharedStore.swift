@@ -14,12 +14,19 @@ enum SharedStore {
     }
 
     static func start() {
-        if let cloudText = cloud.string(forKey: textKey),
-           cloudText != defaults.string(forKey: textKey) {
-            defaults.set(cloudText, forKey: textKey)
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        refreshFromCloud()
+    }
+
+    @discardableResult
+    static func refreshFromCloud() -> Bool {
         cloud.synchronize()
+        guard let cloudText = cloud.string(forKey: textKey),
+              cloudText != defaults.string(forKey: textKey) else {
+            return false
+        }
+        defaults.set(cloudText, forKey: textKey)
+        WidgetCenter.shared.reloadAllTimelines()
+        return true
     }
 
     static func loadText() -> String {

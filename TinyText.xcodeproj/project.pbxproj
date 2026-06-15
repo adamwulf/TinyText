@@ -10,6 +10,7 @@
 		A1000000000000000000F001 /* TinyTextApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000E001 /* TinyTextApp.swift */; };
 		A1000000000000000000F002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000E002 /* RootView.swift */; };
 		A1000000000000000000F003 /* SharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000E003 /* SharedStore.swift */; };
+		A1000000000000000000F004 /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000E004 /* BackgroundRefresh.swift */; };
 		A1000000000000000000F101 /* TinyTextWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B1000000000000000000C001 /* TinyTextWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B1000000000000000000F001 /* TinyTextWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000E001 /* TinyTextWidgetBundle.swift */; };
 		B1000000000000000000F002 /* TinyTextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000E002 /* TinyTextWidget.swift */; };
@@ -46,7 +47,9 @@
 		A1000000000000000000E001 /* TinyTextApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinyTextApp.swift; sourceTree = "<group>"; };
 		A1000000000000000000E002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A1000000000000000000E003 /* SharedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedStore.swift; sourceTree = "<group>"; };
+		A1000000000000000000E004 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
 		A1000000000000000000E009 /* TinyText.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TinyText.entitlements; sourceTree = "<group>"; };
+		A1000000000000000000E00A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A1000000000000000000E0B1 /* Project-Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Project-Shared.xcconfig"; sourceTree = "<group>"; };
 		A1000000000000000000E0B2 /* Project-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Project-Debug.xcconfig"; sourceTree = "<group>"; };
 		A1000000000000000000E0B3 /* Project-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Project-Release.xcconfig"; sourceTree = "<group>"; };
@@ -103,6 +106,7 @@
 				A1000000000000000000E001 /* TinyTextApp.swift */,
 				A1000000000000000000E002 /* RootView.swift */,
 				A1000000000000000000E009 /* TinyText.entitlements */,
+				A1000000000000000000E00A /* Info.plist */,
 				A1000000000000000000A004 /* Support */,
 			);
 			path = TinyText;
@@ -112,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000000000000000000E003 /* SharedStore.swift */,
+				A1000000000000000000E004 /* BackgroundRefresh.swift */,
 			);
 			path = Support;
 			sourceTree = "<group>";
@@ -255,6 +260,7 @@
 				A1000000000000000000F001 /* TinyTextApp.swift in Sources */,
 				A1000000000000000000F002 /* RootView.swift in Sources */,
 				A1000000000000000000F003 /* SharedStore.swift in Sources */,
+				A1000000000000000000F004 /* BackgroundRefresh.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
