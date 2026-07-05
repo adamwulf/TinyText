@@ -37,8 +37,10 @@ struct TinyTextProvider: AppIntentTimelineProvider {
         // Reload on a schedule rather than .never so the widget re-checks iCloud
         // on its own. The app still reloads immediately on local/foreground edits
         // via WidgetCenter; this periodic reload only covers the case where the
-        // app is never opened. ~4h keeps us well within WidgetKit's daily budget
-        // (~6 reloads/day) while guaranteeing a refresh within 24 hours.
+        // app is never opened. .after is the earliest reload time and is subject
+        // to WidgetKit's budget, but ~4h (~6 reloads/day) sits well within the
+        // ~40-70/day budget, so in practice it fires several times a day — far
+        // inside the 24-hour target.
         let nextReload = Date(timeIntervalSinceNow: 4 * 60 * 60)
         return Timeline(entries: [entry], policy: .after(nextReload))
     }
