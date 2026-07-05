@@ -21,15 +21,31 @@ enum SharedStore {
     // if newer than our App Group copy. synchronize() does not fetch from iCloud —
     // remote updates arrive via APNs to the iCloud daemon independently. Calling
     // this from a BGAppRefreshTask gives the app a chance to pick up values the
-    // daemon received while the app was suspended, so the widget stays current.
-    static func refreshFromCloud() {
+    // daemon received while the app was suspended, and calling it from the
+    // widget's timeline provider lets the widget pick up cross-device edits on
+    // its own reload schedule, so it stays current without opening the app.
+    //
+    // Returns true when the App Group copy was updated. Reloads all widget
+    // timelines only when running inside the containing app — a widget must not
+    // reload itself from within its own timeline() call.
+    @discardableResult
+    static func refreshFromCloud() -> Bool {
         cloud.synchronize()
         guard let cloudText = cloud.string(forKey: textKey),
               cloudText != defaults.string(forKey: textKey) else {
-            return
+            return false
         }
         defaults.set(cloudText, forKey: textKey)
-        WidgetCenter.shared.reloadAllTimelines()
+        if !isWidgetProcess {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        return true
+    }
+
+    // The widget extension runs in a process whose bundle identifier ends in
+    // ".widget". We use this to avoid a widget reloading its own timeline.
+    private static var isWidgetProcess: Bool {
+        Bundle.main.bundleIdentifier?.hasSuffix(".widget") ?? false
     }
 
     static func loadText() -> String {
