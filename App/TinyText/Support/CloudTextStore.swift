@@ -116,11 +116,15 @@ actor CloudTextStore {
         do {
             return try await fetchAndApply()
         } catch {
-            guard isUnknownItem(error) else {
-                logger.error("Initial fetch failed: \(String(describing: error), privacy: .public)")
-                return .failed
+            if isUnknownItem(error) {
+                return await enqueueSave()
             }
-            return await enqueueSave()
+            // Cancellation (e.g. the view's task ending) is expected, not a failure
+            // worth logging, but it is still a non-success outcome.
+            if !isCancellation(error) {
+                logger.error("Initial fetch failed: \(String(describing: error), privacy: .public)")
+            }
+            return .failed
         }
     }
 
@@ -132,11 +136,13 @@ actor CloudTextStore {
         do {
             return try await fetchAndApply()
         } catch {
-            guard isUnknownItem(error) else {
-                logger.error("Fetch failed: \(String(describing: error), privacy: .public)")
-                return .failed
+            if isUnknownItem(error) {
+                return .unchanged
             }
-            return .unchanged
+            if !isCancellation(error) {
+                logger.error("Fetch failed: \(String(describing: error), privacy: .public)")
+            }
+            return .failed
         }
     }
 
@@ -167,9 +173,17 @@ actor CloudTextStore {
             logger.error("Fetched record has no String \(Self.textKey, privacy: .public) field; keeping cached text")
             return .failed
         case .text(let text):
-            let changed = text != startCache
-            SharedStore.applyRemoteText(text)
-            return changed ? .updated : .unchanged
+            // The apply is atomic with local writes under SharedStore's lock and
+            // refuses when the cache is dirty, closing the guard/apply TOCTOU.
+            switch SharedStore.applyRemoteText(text) {
+            case .applied(let changed):
+                return changed ? .updated : .unchanged
+            case .refusedDirty:
+                // An unsynced local edit is present (e.g. a prior upload failed).
+                // Re-upload it instead of losing it to the older server value.
+                _ = await enqueueSave()
+                return .unchanged
+            }
         }
     }
 
@@ -242,12 +256,14 @@ actor CloudTextStore {
         }
     }
 
-    /// Cancel the debounce and save the latest cache immediately (e.g. when backgrounding).
+    /// Cancel the debounce and save the latest cache immediately (e.g. when
+    /// backgrounding). Skips the write when the cache is already synced.
     @discardableResult
     func flushSave() async -> Outcome {
-        localSaveGeneration &+= 1
         pendingSave?.cancel()
         pendingSave = nil
+        guard SharedStore.isDirty else { return .unchanged }
+        localSaveGeneration &+= 1
         return await enqueueSave()
     }
 
@@ -290,6 +306,9 @@ actor CloudTextStore {
                 logger.error("Save failed: \(String(describing: error), privacy: .public)")
                 return .failed
             }
+            // The cache is now confirmed on the server; clear the dirty marker
+            // unless a newer edit changed the cache after this text was read.
+            SharedStore.clearDirty(ifTextEquals: text)
             return .updated
         } catch {
             logger.error("Save failed: \(String(describing: error), privacy: .public)")
@@ -301,6 +320,13 @@ actor CloudTextStore {
 
     private func isUnknownItem(_ error: Error) -> Bool {
         (error as? CKError)?.code == .unknownItem
+    }
+
+    /// A cancelled fetch (task cancellation or the CloudKit operation being
+    /// cancelled on background-refresh expiration). Expected, so it is not logged.
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as? CKError)?.code == .operationCancelled
     }
 
     /// Unwrap the per-record error from a `CKError.partialFailure`, so a missing

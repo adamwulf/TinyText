@@ -6,9 +6,9 @@ struct RootView: View {
     @FocusState private var isFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
-    // Built once and stored so it is not rebuilt on every render. `applyRemoteText(_:)`
-    // posts from the CloudTextStore actor's executor, so deliver on the main queue
-    // before mutating view state.
+    // Stored per view instance so `body` does not rebuild it on every render.
+    // `applyRemoteText(_:)` posts from the CloudTextStore actor's executor, so
+    // deliver on the main queue before mutating view state.
     private let remoteTextChanges = NotificationCenter.default
         .publisher(for: SharedStore.textDidChangeNotification)
         .receive(on: DispatchQueue.main)
