@@ -15,6 +15,13 @@ actor CloudTextStore {
         case failed
     }
 
+    /// Sendable result of reading the fixed record, so no `CKRecord` (which is
+    /// not Sendable) crosses the fetch's continuation boundary.
+    private enum Fetched: Sendable {
+        case text(String)
+        case missingField
+    }
+
     static let shared = CloudTextStore()
 
     private static let containerIdentifier = "iCloud.com.milestonemade.tinytext"
@@ -37,6 +44,11 @@ actor CloudTextStore {
     // Identifies the most recently scheduled debounce so a finished older debounce
     // never clears a newer one's pendingSave.
     private var saveGeneration = 0
+    // Bumped on every local persist request (schedule or flush) and counted while
+    // a write is in flight. A fetch inspects these to know whether a newer local
+    // edit is pending, so an older server record never overwrites just-typed text.
+    private var localSaveGeneration = 0
+    private var activeWrites = 0
 
     init() {
         let container = CKContainer(identifier: Self.containerIdentifier)
@@ -54,7 +66,8 @@ actor CloudTextStore {
 
     /// Fetch the subscription by ID. Create it only when CloudKit reports that
     /// it does not yet exist. An existing subscription counts as success, so no
-    /// device-local "created" flag is needed.
+    /// device-local "created" flag is needed. The by-ID lookup is a deliberate
+    /// network round-trip that keeps the client stateless about creation.
     func ensureSubscription() async {
         do {
             _ = try await database.subscription(for: Self.subscriptionID)
@@ -107,12 +120,13 @@ actor CloudTextStore {
                 logger.error("Initial fetch failed: \(String(describing: error), privacy: .public)")
                 return .failed
             }
-            return await enqueueSave(SharedStore.loadText())
+            return await enqueueSave()
         }
     }
 
     /// Fetch `primary` without seeding. Used for silent-notification and
     /// background-refresh handling, where a missing record is simply no data.
+    /// Honors task cancellation, so a background expiration stops the network work.
     @discardableResult
     func fetchLatest() async -> Outcome {
         do {
@@ -127,22 +141,84 @@ actor CloudTextStore {
     }
 
     private func fetchAndApply() async throws -> Outcome {
-        let record = try await database.record(for: recordID)
-        guard let text = record[Self.textKey] as? String else {
+        // Snapshot local state so a slow fetch that returns an older server value
+        // can never overwrite a newer local edit.
+        let startGeneration = localSaveGeneration
+        let startCache = SharedStore.loadText()
+
+        let fetched = try await fetchRecord()
+
+        // Discard the fetched value if any local mutation or save raced the
+        // network round-trip: a persist was requested (generation moved), one is
+        // pending or in flight, or the cache changed under us (covering the window
+        // where the editor updated the cache before its save task reached here).
+        guard localSaveGeneration == startGeneration,
+              pendingSave == nil,
+              activeWrites == 0,
+              SharedStore.loadText() == startCache
+        else {
+            return .unchanged
+        }
+
+        switch fetched {
+        case .missingField:
             // The record exists but has no valid String text field. Preserve the
             // good cache instead of clobbering it with an empty value.
             logger.error("Fetched record has no String \(Self.textKey, privacy: .public) field; keeping cached text")
             return .failed
+        case .text(let text):
+            let changed = text != startCache
+            SharedStore.applyRemoteText(text)
+            return changed ? .updated : .unchanged
         }
-        let changed = text != SharedStore.loadText()
-        SharedStore.applyRemoteText(text)
-        return changed ? .updated : .unchanged
+    }
+
+    /// Fetch the fixed record with a `CKFetchRecordsOperation` that is cancelled
+    /// when the surrounding task is cancelled (e.g. background-refresh expiration).
+    /// Throws `CKError.unknownItem` when the record does not exist.
+    private func fetchRecord() async throws -> Fetched {
+        let operation = CKFetchRecordsOperation(recordIDs: [recordID])
+        let targetID = recordID
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Fetched, Error>) in
+                // All callbacks run serially on the operation's private queue, so
+                // this shared result needs no extra locking.
+                nonisolated(unsafe) var perRecord: Result<CKRecord, Error>?
+                operation.perRecordResultBlock = { id, result in
+                    if id == targetID { perRecord = result }
+                }
+                operation.fetchRecordsResultBlock = { result in
+                    switch perRecord {
+                    case .success(let record):
+                        if let text = record[Self.textKey] as? String {
+                            continuation.resume(returning: .text(text))
+                        } else {
+                            continuation.resume(returning: .missingField)
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    case nil:
+                        switch result {
+                        case .success:
+                            continuation.resume(throwing: CKError(.unknownItem))
+                        case .failure(let error):
+                            continuation.resume(throwing: Self.recordError(for: targetID, from: error))
+                        }
+                    }
+                }
+                database.add(operation)
+            }
+        } onCancel: {
+            operation.cancel()
+        }
     }
 
     // MARK: - Saving
 
-    /// Cancel any pending debounce and save the latest text after 750 ms.
-    func scheduleSave(_ text: String) {
+    /// Cancel any pending debounce and save the latest cache after 750 ms.
+    func scheduleSave() {
+        localSaveGeneration &+= 1
         pendingSave?.cancel()
         saveGeneration &+= 1
         let generation = saveGeneration
@@ -153,12 +229,12 @@ actor CloudTextStore {
                 return // debounce cancelled by a newer edit or flush
             }
             guard !Task.isCancelled, let self else { return }
-            await self.runDebouncedSave(text, generation: generation)
+            await self.runDebouncedSave(generation: generation)
         }
     }
 
-    private func runDebouncedSave(_ text: String, generation: Int) async {
-        _ = await enqueueSave(text)
+    private func runDebouncedSave(generation: Int) async {
+        _ = await enqueueSave()
         // Clear only if no newer debounce was scheduled while this one committed,
         // so an older task never nils out a newer task's pendingSave.
         if generation == saveGeneration {
@@ -166,33 +242,40 @@ actor CloudTextStore {
         }
     }
 
-    /// Cancel the debounce and save immediately (e.g. when backgrounding).
+    /// Cancel the debounce and save the latest cache immediately (e.g. when backgrounding).
     @discardableResult
-    func flushSave(_ text: String) async -> Outcome {
+    func flushSave() async -> Outcome {
+        localSaveGeneration &+= 1
         pendingSave?.cancel()
         pendingSave = nil
-        return await enqueueSave(text)
+        return await enqueueSave()
     }
 
     /// Append a write to the serial chain and await its result. Chaining behind
     /// any in-flight write guarantees writes commit in enqueue order (newest
     /// wins), which actor reentrancy across the network await cannot provide.
     @discardableResult
-    private func enqueueSave(_ text: String) async -> Outcome {
+    private func enqueueSave() async -> Outcome {
         let previous = writeChain
         let task = Task { [weak self] in
             _ = await previous?.value // let the prior write commit first
             guard let self else { return Outcome.failed }
-            return await self.performWrite(text)
+            return await self.performWrite()
         }
         writeChain = task
-        return await task.value
+        activeWrites += 1
+        let outcome = await task.value
+        activeWrites -= 1
+        return outcome
     }
 
-    /// Write `text` to the fixed record. A fresh `CKRecord` plus a `.changedKeys`
+    /// Write the current cache to the fixed record. Reading the cache here (rather
+    /// than trusting a value captured when the save was requested) means the write
+    /// always persists the freshest text. A fresh `CKRecord` plus a `.changedKeys`
     /// policy is a deliberate last-write-wins on the single `text` field: the
     /// policy ignores the server change tag rather than comparing it.
-    private func performWrite(_ text: String) async -> Outcome {
+    private func performWrite() async -> Outcome {
+        let text = SharedStore.loadText()
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
         record[Self.textKey] = text
 
@@ -218,5 +301,17 @@ actor CloudTextStore {
 
     private func isUnknownItem(_ error: Error) -> Bool {
         (error as? CKError)?.code == .unknownItem
+    }
+
+    /// Unwrap the per-record error from a `CKError.partialFailure`, so a missing
+    /// record surfaces as `CKError.unknownItem` for the seed path.
+    private static func recordError(for id: CKRecord.ID, from error: Error) -> Error {
+        guard let ckError = error as? CKError,
+              ckError.code == .partialFailure,
+              let itemError = ckError.partialErrorsByItemID?[id]
+        else {
+            return error
+        }
+        return itemError
     }
 }

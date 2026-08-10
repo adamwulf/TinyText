@@ -7,11 +7,54 @@ enum BackgroundRefresh {
 
     private static let minimumInterval: TimeInterval = 60 * 60
 
-    // `BGTask` predates Sendable but is safe to complete from background work
-    // (that is its designed usage), so wrap it to hand the reference to the
-    // async fetch below without a region-isolation violation.
-    private struct UncheckedTask: @unchecked Sendable {
-        let task: BGAppRefreshTask
+    /// Coordinates a background fetch and its `BGAppRefreshTask`. The expiration
+    /// handler and the fetch's completion run on different threads and race, so a
+    /// lock guards a single `setTaskCompleted` call and lets expiration report
+    /// failure immediately without waiting for a delayed network callback.
+    /// `@unchecked Sendable` because it owns a non-Sendable `BGTask` behind its lock.
+    private final class Coordinator: @unchecked Sendable {
+        private let lock = NSLock()
+        private let task: BGAppRefreshTask
+        private var work: Task<Void, Never>?
+        private var expired = false
+        private var completed = false
+
+        init(_ task: BGAppRefreshTask) {
+            self.task = task
+        }
+
+        /// Attach the fetch task. If expiration already fired, cancel it at once.
+        func attach(_ work: Task<Void, Never>) {
+            lock.lock()
+            self.work = work
+            let alreadyExpired = expired
+            lock.unlock()
+            if alreadyExpired { work.cancel() }
+        }
+
+        /// From the expiration handler: cancel the in-flight fetch and fail now.
+        func expire() {
+            lock.lock()
+            expired = true
+            let work = self.work
+            lock.unlock()
+            work?.cancel()
+            complete(success: false)
+        }
+
+        /// From the fetch completion: report the outcome (ignored after expiry).
+        func finish(success: Bool) {
+            complete(success: success)
+        }
+
+        private func complete(success: Bool) {
+            lock.lock()
+            let wasCompleted = completed
+            completed = true
+            lock.unlock()
+            guard !wasCompleted else { return }
+            task.setTaskCompleted(success: success)
+        }
     }
 
     static func register() {
@@ -42,20 +85,18 @@ enum BackgroundRefresh {
         // Reschedule now so the chain continues even if this run is cut short.
         schedule()
 
-        let boxed = UncheckedTask(task: task)
+        let coordinator = Coordinator(task)
 
-        // Fetch the authoritative record, then complete the task. This block is
-        // the sole call site of `setTaskCompleted`, so completion happens exactly
-        // once whether the fetch finishes or is cancelled on expiration.
+        // Install expiration handling before starting the fetch so an early
+        // expiration always cancels the work and completes the task exactly once.
+        task.expirationHandler = {
+            coordinator.expire()
+        }
+
         let work = Task {
             let outcome = await CloudTextStore.shared.fetchLatest()
-            boxed.task.setTaskCompleted(success: outcome != .failed)
+            coordinator.finish(success: outcome != .failed)
         }
-
-        // Expiration cancels the in-flight fetch; the block above still reports
-        // completion once when the (now cancelled) fetch returns.
-        task.expirationHandler = {
-            work.cancel()
-        }
+        coordinator.attach(work)
     }
 }

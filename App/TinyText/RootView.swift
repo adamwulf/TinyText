@@ -6,6 +6,13 @@ struct RootView: View {
     @FocusState private var isFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
+    // Built once and stored so it is not rebuilt on every render. `applyRemoteText(_:)`
+    // posts from the CloudTextStore actor's executor, so deliver on the main queue
+    // before mutating view state.
+    private let remoteTextChanges = NotificationCenter.default
+        .publisher(for: SharedStore.textDidChangeNotification)
+        .receive(on: DispatchQueue.main)
+
     var body: some View {
         TextEditor(text: $text)
             .focused($isFocused)
@@ -23,7 +30,7 @@ struct RootView: View {
                 // written the cache, so this reports no change and never echoes
                 // back into another cloud write.
                 if SharedStore.saveText(newValue) {
-                    Task { await CloudTextStore.shared.scheduleSave(newValue) }
+                    Task { await CloudTextStore.shared.scheduleSave() }
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -33,9 +40,9 @@ struct RootView: View {
                     // recover any change that never woke the app.
                     Task { await CloudTextStore.shared.fetchLatest() }
                 case .background:
-                    // The cache is already current from `onChange(of: text)`, so
-                    // just flush the pending debounce to the cloud immediately.
-                    Task { [text] in await CloudTextStore.shared.flushSave(text) }
+                    // Flush the pending debounce so the latest cache reaches the
+                    // cloud immediately; the save reads the cache at execution time.
+                    Task { await CloudTextStore.shared.flushSave() }
                 default:
                     break
                 }
@@ -46,14 +53,5 @@ struct RootView: View {
                 // `onChange(of: text)` reports no change and schedules no save.
                 text = SharedStore.loadText()
             }
-    }
-
-    /// `applyRemoteText(_:)` posts from the `CloudTextStore` actor's executor,
-    /// so deliver on the main queue before mutating view state.
-    private var remoteTextChanges: AnyPublisher<Notification, Never> {
-        NotificationCenter.default
-            .publisher(for: SharedStore.textDidChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .eraseToAnyPublisher()
     }
 }
