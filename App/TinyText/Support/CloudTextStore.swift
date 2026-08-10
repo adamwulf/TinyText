@@ -29,6 +29,13 @@ actor CloudTextStore {
     private let logger = Logger(subsystem: "com.milestonemade.tinytext", category: "CloudTextStore")
 
     private var pendingSave: Task<Void, Never>?
+    // Serial chain of in-flight cloud writes. Each write awaits the previous one
+    // before issuing its own modifyRecords, so writes commit in enqueue order
+    // (newest wins) despite actor reentrancy across the network await.
+    private var writeChain: Task<Outcome, Never>?
+    // Identifies the most recently scheduled debounce so a finished older debounce
+    // never clears a newer one's pendingSave.
+    private var saveGeneration = 0
 
     init() {
         let container = CKContainer(identifier: Self.containerIdentifier)
@@ -75,8 +82,13 @@ actor CloudTextStore {
         do {
             _ = try await database.save(subscription)
         } catch {
-            // Another launch may have created it first; that is still success.
-            logger.error("Failed to create subscription: \(String(describing: error), privacy: .public)")
+            // Another launch may have created it first. Re-fetch by ID: a
+            // now-existing subscription is success. Only log if it is truly absent.
+            do {
+                _ = try await database.subscription(for: Self.subscriptionID)
+            } catch let verifyError {
+                logger.error("Failed to create subscription: \(String(describing: verifyError), privacy: .public)")
+            }
         }
     }
 
@@ -94,7 +106,7 @@ actor CloudTextStore {
                 logger.error("Initial fetch failed: \(String(describing: error), privacy: .public)")
                 return .failed
             }
-            return await save(SharedStore.loadText())
+            return await enqueueSave(SharedStore.loadText())
         }
     }
 
@@ -115,7 +127,12 @@ actor CloudTextStore {
 
     private func fetchAndApply() async throws -> Outcome {
         let record = try await database.record(for: recordID)
-        let text = record[Self.textKey] as? String ?? ""
+        guard let text = record[Self.textKey] as? String else {
+            // The record exists but has no valid String text field. Preserve the
+            // good cache instead of clobbering it with an empty value.
+            logger.error("Fetched record has no String \(Self.textKey, privacy: .public) field; keeping cached text")
+            return .failed
+        }
         let changed = text != SharedStore.loadText()
         SharedStore.applyRemoteText(text)
         return changed ? .updated : .unchanged
@@ -126,6 +143,8 @@ actor CloudTextStore {
     /// Cancel any pending debounce and save the latest text after 750 ms.
     func scheduleSave(_ text: String) {
         pendingSave?.cancel()
+        saveGeneration &+= 1
+        let generation = saveGeneration
         pendingSave = Task { [weak self] in
             do {
                 try await Task.sleep(for: Self.saveDebounce)
@@ -133,7 +152,16 @@ actor CloudTextStore {
                 return // debounce cancelled by a newer edit or flush
             }
             guard !Task.isCancelled, let self else { return }
-            _ = await self.save(text)
+            await self.runDebouncedSave(text, generation: generation)
+        }
+    }
+
+    private func runDebouncedSave(_ text: String, generation: Int) async {
+        _ = await enqueueSave(text)
+        // Clear only if no newer debounce was scheduled while this one committed,
+        // so an older task never nils out a newer task's pendingSave.
+        if generation == saveGeneration {
+            pendingSave = nil
         }
     }
 
@@ -142,13 +170,28 @@ actor CloudTextStore {
     func flushSave(_ text: String) async -> Outcome {
         pendingSave?.cancel()
         pendingSave = nil
-        return await save(text)
+        return await enqueueSave(text)
+    }
+
+    /// Append a write to the serial chain and await its result. Chaining behind
+    /// any in-flight write guarantees writes commit in enqueue order (newest
+    /// wins), which actor reentrancy across the network await cannot provide.
+    @discardableResult
+    private func enqueueSave(_ text: String) async -> Outcome {
+        let previous = writeChain
+        let task = Task { [weak self] in
+            _ = await previous?.value // let the prior write commit first
+            guard let self else { return Outcome.failed }
+            return await self.performWrite(text)
+        }
+        writeChain = task
+        return await task.value
     }
 
     /// Write `text` to the fixed record. A fresh `CKRecord` plus a `.changedKeys`
     /// policy is a deliberate last-write-wins on the single `text` field: the
     /// policy ignores the server change tag rather than comparing it.
-    private func save(_ text: String) async -> Outcome {
+    private func performWrite(_ text: String) async -> Outcome {
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
         record[Self.textKey] = text
 
