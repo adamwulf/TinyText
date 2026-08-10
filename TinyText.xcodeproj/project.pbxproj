@@ -208,6 +208,14 @@
 				TargetAttributes = {
 					A1000000000000000000B100 = {
 						CreatedOnToolsVersion = 26.3;
+						SystemCapabilities = {
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
 					};
 					B1000000000000000000B100 = {
 						CreatedOnToolsVersion = 26.3;

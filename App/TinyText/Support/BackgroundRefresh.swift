@@ -36,7 +36,6 @@ enum BackgroundRefresh {
             task.setTaskCompleted(success: false)
         }
         schedule()
-        SharedStore.refreshFromCloud()
         task.setTaskCompleted(success: true)
     }
 }

@@ -25,22 +25,13 @@ struct TinyTextProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: WrapLinesIntent, in context: Context) async -> TinyTextEntry {
-        SharedStore.refreshFromCloud()
         return TinyTextEntry(date: Date(), text: SharedStore.loadText(), wrapLines: configuration.wrapLines)
     }
 
     func timeline(for configuration: WrapLinesIntent, in context: Context) async -> Timeline<TinyTextEntry> {
-        // Adopt any newer value the iCloud daemon received while the app was
-        // suspended, so cross-device edits appear without opening the app.
-        SharedStore.refreshFromCloud()
         let entry = TinyTextEntry(date: Date(), text: SharedStore.loadText(), wrapLines: configuration.wrapLines)
-        // Reload on a schedule rather than .never so the widget re-checks iCloud
-        // on its own. The app still reloads immediately on local/foreground edits
-        // via WidgetCenter; this periodic reload only covers the case where the
-        // app is never opened. .after is the earliest reload time and is subject
-        // to WidgetKit's budget, but ~4h (~6 reloads/day) sits well within the
-        // ~40-70/day budget, so in practice it fires several times a day — far
-        // inside the 24-hour target.
+        // Periodically render the App Group cache as a fallback. The app also
+        // reloads the widget immediately whenever it changes that cache.
         let nextReload = Date(timeIntervalSinceNow: 4 * 60 * 60)
         return Timeline(entries: [entry], policy: .after(nextReload))
     }
