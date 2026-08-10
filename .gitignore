@@ -18,3 +18,5 @@ Package.resolved
 
 # macOS
 .DS_Store
+.codex/
+AGENTS.md
