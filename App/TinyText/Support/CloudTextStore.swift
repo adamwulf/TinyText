@@ -302,14 +302,22 @@ actor CloudTextStore {
                 savePolicy: .changedKeys,
                 atomically: true
             )
-            if case .failure(let error) = results.saveResults[recordID] {
+            // Require an explicit success for our record before trusting the write.
+            // A .failure or a missing entry both mean the upload is not confirmed,
+            // so leave the cache dirty for a later retry.
+            switch results.saveResults[recordID] {
+            case .success:
+                // Confirmed on the server; clear the dirty marker unless a newer
+                // edit changed the cache after this text was read.
+                SharedStore.clearDirty(ifTextEquals: text)
+                return .updated
+            case .failure(let error):
                 logger.error("Save failed: \(String(describing: error), privacy: .public)")
                 return .failed
+            case nil:
+                logger.error("Save returned no result for record \(Self.recordName, privacy: .public)")
+                return .failed
             }
-            // The cache is now confirmed on the server; clear the dirty marker
-            // unless a newer edit changed the cache after this text was read.
-            SharedStore.clearDirty(ifTextEquals: text)
-            return .updated
         } catch {
             logger.error("Save failed: \(String(describing: error), privacy: .public)")
             return .failed

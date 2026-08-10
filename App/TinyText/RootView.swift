@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @State private var text: String = SharedStore.loadText()
@@ -41,8 +42,9 @@ struct RootView: View {
                     Task { await CloudTextStore.shared.fetchLatest() }
                 case .background:
                     // Flush the pending debounce so the latest cache reaches the
-                    // cloud immediately; the save reads the cache at execution time.
-                    Task { await CloudTextStore.shared.flushSave() }
+                    // cloud immediately, under a background assertion so the write
+                    // has time to finish; the save reads the cache at execution time.
+                    BackgroundFlush.start()
                 default:
                     break
                 }
@@ -53,5 +55,49 @@ struct RootView: View {
                 // `onChange(of: text)` reports no change and schedules no save.
                 text = SharedStore.loadText()
             }
+    }
+}
+
+/// Runs the scene-background flush inside a UIKit background-task assertion so the
+/// immediate cloud write has time to finish before the app is suspended. Begins and
+/// ends the assertion on the main actor, ends it exactly once (on completion or
+/// expiration), and cancels the flush on expiration. The durable dirty marker
+/// remains the recovery fallback if the reserved time runs out.
+@MainActor
+private final class BackgroundFlush {
+    private var taskID: UIBackgroundTaskIdentifier = .invalid
+    private var work: Task<Void, Never>?
+    private var ended = false
+
+    static func start() {
+        BackgroundFlush().begin()
+    }
+
+    private func begin() {
+        // Reserve time first so the assertion exists before the flush can finish.
+        taskID = UIApplication.shared.beginBackgroundTask(withName: "TinyText.flush") { [weak self] in
+            self?.expire()
+        }
+        // The work task holds self strongly for the run; `end()` drops that
+        // reference so the transient cycle never outlives the flush.
+        work = Task { [self] in
+            await CloudTextStore.shared.flushSave()
+            end()
+        }
+    }
+
+    private func expire() {
+        work?.cancel()
+        end()
+    }
+
+    private func end() {
+        guard !ended else { return }
+        ended = true
+        work = nil
+        if taskID != .invalid {
+            UIApplication.shared.endBackgroundTask(taskID)
+            taskID = .invalid
+        }
     }
 }
