@@ -11,6 +11,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.milestonemade.tinytext
 DEVELOPMENT_TEAM = T68Z94627S
 CODE_SIGN_STYLE = Automatic
 CODE_SIGN_ENTITLEMENTS = App/TinyText/TinyText.entitlements
+CODE_SIGN_ENTITLEMENTS[sdk=macosx*] = App/TinyText/TinyText-Catalyst.entitlements
 
 // Swift
 SWIFT_VERSION = 6.0

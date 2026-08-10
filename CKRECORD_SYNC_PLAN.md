@@ -139,9 +139,10 @@ Expected result: active UI, background delivery, and missed-notification recover
 1. Confirm no `NSUbiquitousKeyValueStore` references remain.
 2. Remove `com.apple.developer.ubiquity-kvstore-identifier` from the app and widget entitlements.
 3. Build the app and widget for iOS/iPadOS and Mac Catalyst.
-4. Run once against the development CloudKit environment and save text so the `TinyTextDocument` schema exists.
-5. Verify the record and subscription in CloudKit Console.
-6. Deploy the schema to production before TestFlight or App Store installation.
+4. Archive each release platform and inspect the signed app entitlements. Confirm the distribution profile resolved the APNs environment to `production`; iOS/iPadOS use `aps-environment`, while Mac Catalyst uses `com.apple.developer.aps-environment`.[^7]
+5. Run once against the development CloudKit environment and save text so the `TinyTextDocument` schema exists.
+6. Verify the record and subscription in CloudKit Console.
+7. Deploy the schema to production before TestFlight or App Store installation.
 
 Expected result: the release has one synchronization system and no dormant KVS compatibility code.
 
@@ -187,3 +188,4 @@ The old KVS value may remain orphaned in iCloud. No cleanup or migration-version
 [^4]: [Apple Developer Documentation: Keeping a widget up to date](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
 [^5]: [Apple Developer Documentation: Pushing background updates to your app](https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app)
 [^6]: [Apple sample: CloudKit Samples — CKSyncEngine](https://github.com/apple/sample-cloudkit-sync-engine)
+[^7]: [Apple Developer Documentation: Registering your app with APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns)
