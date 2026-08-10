@@ -20,7 +20,8 @@ actor CloudTextStore {
     private static let containerIdentifier = "iCloud.com.milestonemade.tinytext"
     private static let recordType = "TinyTextDocument"
     private static let recordName = "primary"
-    private static let subscriptionID = "tinytext-document-changes"
+    /// Shared with `AppDelegate`, which accepts only pushes carrying this ID.
+    static let subscriptionID = "tinytext-document-changes"
     private static let textKey = "text"
     private static let saveDebounce: Duration = .milliseconds(750)
 
