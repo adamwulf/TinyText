@@ -67,8 +67,9 @@ Create `App/TinyText/Support/CloudTextStore.swift` in the app target only. Imple
 Provide these operations:
 
 1. `start()`
-   - Ensure the subscription exists.
    - Run `fetchLatestOrSeed()`.
+   - Ensure the subscription exists.
+   - Seeding first means a pristine development container has the `TinyTextDocument` record type before the `CKQuerySubscription` that queries it is saved, so one signed launch creates and verifies both the `primary` record and the subscription without a relaunch. The two steps are independent, so error and data-safety behavior do not depend on the order.
 2. `ensureSubscription()`
    - Fetch `tinytext-document-changes` by ID.
    - If CloudKit returns `CKError.unknownItem`, create a `CKQuerySubscription` for `TinyTextDocument` creation and updates.
@@ -140,9 +141,9 @@ Expected result: active UI, background delivery, and missed-notification recover
 2. Remove `com.apple.developer.ubiquity-kvstore-identifier` from the app and widget entitlements.
 3. Build the app and widget for iOS/iPadOS and Mac Catalyst.
 4. Archive each release platform and inspect the signed app entitlements. Confirm the distribution profile resolved the APNs environment to `production`; iOS/iPadOS use `aps-environment`, while Mac Catalyst uses `com.apple.developer.aps-environment`.[^7]
-5. Run once against the development CloudKit environment and save text so the `TinyTextDocument` schema exists.
-6. Verify the record and subscription in CloudKit Console.
-7. Deploy the schema to production before TestFlight or App Store installation.
+5. Run once against the development CloudKit environment and save text. This first launch creates the `TinyTextDocument` record type and its `text` field in the development schema, seeds the `primary` record, and registers the `tinytext-document-changes` subscription.
+6. Verify the `primary` record and the `tinytext-document-changes` subscription in the CloudKit Console's Development environment.
+7. Deploy the schema to production before TestFlight or App Store installation. Schema deployment promotes only record types, fields, and indexes; it does not copy the development environment's record data or subscriptions. Each production install creates its own per-account `primary` record and `tinytext-document-changes` subscription at runtime, after the schema is live.
 
 Expected result: the release has one synchronization system and no dormant KVS compatibility code.
 

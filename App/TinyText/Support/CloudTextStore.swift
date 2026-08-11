@@ -58,10 +58,15 @@ actor CloudTextStore {
 
     // MARK: - Lifecycle
 
-    /// Ensure the subscription exists, then pull (or seed) the authoritative value.
+    /// Pull (or seed) the authoritative value first, then ensure the subscription
+    /// exists. Seeding first means a pristine development container has the
+    /// `TinyTextDocument` record type before the `CKQuerySubscription` that queries
+    /// it is saved, so one signed launch can create and verify both the `primary`
+    /// record and the subscription without a relaunch. The two steps are
+    /// independent, so error and data-safety behavior are unchanged by the order.
     func start() async {
-        await ensureSubscription()
         _ = await fetchLatestOrSeed()
+        await ensureSubscription()
     }
 
     /// Fetch the subscription by ID. Create it only when CloudKit reports that
