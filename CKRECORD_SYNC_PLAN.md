@@ -12,7 +12,9 @@ CloudKit will store one private record and send silent change notifications thro
 - App Group `UserDefaults` remains the fast local cache read by the app and widget.
 - The containing app owns all CloudKit work; the widget only reads the cache.
 - Use a fixed record ID, so every fetch is a direct lookup rather than a query.
-- Use a 750-millisecond debounce for cloud writes.
+- Use a five-second debounce for cloud writes so normal typing pauses do not
+  generate a burst of CloudKit saves and silent pushes. Backgrounding still
+  flushes the latest value immediately.
 - Use `.changedKeys` for simple last-write-wins behavior on the single `text` field.[^3]
 - Concurrent editing on two devices is out of scope.
 - Never delete the record through the app.
@@ -82,7 +84,7 @@ Provide these operations:
    - On network, account, or permission errors, retain the cache and report failure.
 4. `scheduleSave(_:)`
    - Cancel the previous pending save.
-   - Wait 750 milliseconds and then save the latest text.
+   - Wait five seconds and then save the latest text.
 5. `flushSave(_:)`
    - Cancel the debounce and save immediately.
 6. `fetchLatest()`

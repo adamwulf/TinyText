@@ -30,7 +30,10 @@ actor CloudTextStore {
     /// Shared with `AppDelegate`, which accepts only pushes carrying this ID.
     static let subscriptionID = "tinytext-document-changes"
     private static let textKey = "text"
-    private static let saveDebounce: Duration = .milliseconds(750)
+    // CloudKit writes can generate silent pushes on every subscribed device.
+    // Five seconds coalesces normal typing pauses without making cross-device
+    // updates feel excessively stale; backgrounding still flushes immediately.
+    private static let saveDebounce: Duration = .seconds(5)
 
     private let database: CKDatabase
     private let recordID: CKRecord.ID
@@ -237,7 +240,7 @@ actor CloudTextStore {
 
     // MARK: - Saving
 
-    /// Cancel any pending debounce and save the latest cache after 750 ms.
+    /// Cancel any pending debounce and save the latest cache after five seconds.
     func scheduleSave() {
         localSaveGeneration &+= 1
         pendingSave?.cancel()
