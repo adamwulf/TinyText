@@ -62,8 +62,10 @@ actor CloudTextStore {
     /// exists. Seeding first means a pristine development container has the
     /// `TinyTextDocument` record type before the `CKQuerySubscription` that queries
     /// it is saved, so one signed launch can create and verify both the `primary`
-    /// record and the subscription without a relaunch. The two steps are
-    /// independent, so error and data-safety behavior are unchanged by the order.
+    /// record and the subscription without a relaunch. This order intentionally
+    /// changes pristine first-launch provisioning and push-arm timing — the record
+    /// exists before the subscription arms — while preserving the existing
+    /// data-safety guards in `fetchAndApply` and the serial write chain.
     func start() async {
         _ = await fetchLatestOrSeed()
         await ensureSubscription()
