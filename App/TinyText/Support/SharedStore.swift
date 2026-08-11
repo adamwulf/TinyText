@@ -4,70 +4,92 @@ import WidgetKit
 enum SharedStore {
     static let appGroupID = "group.com.milestonemade.tinytext"
     static let textKey = "tinytext.text"
+    static let textDidChangeNotification = Notification.Name("SharedStore.textDidChange")
+
+    private static let dirtyKey = "tinytext.dirty"
+    private static let widgetKind = "TinyTextWidget"
+
+    // Serializes cache + dirty-marker mutations so a local edit and a conditional
+    // remote apply can never interleave. This closes the window between
+    // CloudTextStore's fetch guard and the apply below.
+    private static let lock = NSLock()
+
+    /// Outcome of a conditional remote apply, so the caller's fetch outcome stays accurate.
+    enum RemoteApply {
+        case applied(changed: Bool)
+        case refusedDirty
+    }
 
     static var defaults: UserDefaults {
         UserDefaults(suiteName: appGroupID) ?? .standard
-    }
-
-    private static var cloud: NSUbiquitousKeyValueStore {
-        NSUbiquitousKeyValueStore.default
-    }
-
-    static func start() {
-        refreshFromCloud()
-    }
-
-    // Reads whatever NSUbiquitousKeyValueStore has cached locally and adopts it
-    // if newer than our App Group copy. synchronize() does not fetch from iCloud —
-    // remote updates arrive via APNs to the iCloud daemon independently. Calling
-    // this from a BGAppRefreshTask gives the app a chance to pick up values the
-    // daemon received while the app was suspended, and calling it from the
-    // widget's timeline provider lets the widget pick up cross-device edits on
-    // its own reload schedule, so it stays current without opening the app.
-    //
-    // Returns true when the App Group copy was updated. Reloads all widget
-    // timelines only when running inside the containing app — a widget must not
-    // reload itself from within its own timeline() call.
-    @discardableResult
-    static func refreshFromCloud() -> Bool {
-        cloud.synchronize()
-        guard let cloudText = cloud.string(forKey: textKey),
-              cloudText != defaults.string(forKey: textKey) else {
-            return false
-        }
-        defaults.set(cloudText, forKey: textKey)
-        if !isWidgetProcess {
-            WidgetCenter.shared.reloadAllTimelines()
-        }
-        return true
-    }
-
-    // The widget extension runs in a process whose bundle identifier ends in
-    // ".widget". We use this to avoid a widget reloading its own timeline.
-    private static var isWidgetProcess: Bool {
-        Bundle.main.bundleIdentifier?.hasSuffix(".widget") ?? false
     }
 
     static func loadText() -> String {
         defaults.string(forKey: textKey) ?? ""
     }
 
-    static func saveText(_ text: String) {
-        if defaults.string(forKey: textKey) == text { return }
-        defaults.set(text, forKey: textKey)
-        cloud.set(text, forKey: textKey)
-        WidgetCenter.shared.reloadAllTimelines()
+    /// True while the cache holds a local edit not yet confirmed on the server.
+    /// Durable across relaunch/force-quit because it lives in the App Group.
+    static var isDirty: Bool {
+        defaults.bool(forKey: dirtyKey)
     }
 
-    static func applyExternalChange(_ note: Notification) -> String? {
-        if let keys = note.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String],
-           !keys.contains(textKey) {
-            return nil
+    /// A local edit. Writes the cache and marks it dirty synchronously, so a
+    /// crash before the upload cannot lose the edit. Returns whether the value
+    /// changed; only a real change reloads the widget and warrants a cloud save.
+    @discardableResult
+    static func saveText(_ text: String) -> Bool {
+        lock.lock()
+        let changed = loadTextLocked() != text
+        if changed {
+            defaults.set(text, forKey: textKey)
+            defaults.set(true, forKey: dirtyKey)
         }
-        guard let newValue = cloud.string(forKey: textKey) else { return nil }
-        if defaults.string(forKey: textKey) == newValue { return nil }
-        defaults.set(newValue, forKey: textKey)
-        WidgetCenter.shared.reloadAllTimelines()
-        return newValue
+        lock.unlock()
+
+        if changed {
+            WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+        }
+        return changed
+    }
+
+    /// Apply an authoritative server value. Refuses when the cache is dirty, so a
+    /// slow or older fetch can never erase an unsynced local edit. Otherwise the
+    /// cache now equals the server value, so it stays clean. Returns whether it
+    /// changed the cache.
+    static func applyRemoteText(_ text: String) -> RemoteApply {
+        lock.lock()
+        guard !defaults.bool(forKey: dirtyKey) else {
+            lock.unlock()
+            return .refusedDirty
+        }
+        let changed = loadTextLocked() != text
+        if changed {
+            defaults.set(text, forKey: textKey)
+        }
+        lock.unlock()
+
+        // Widget reload and editor notification happen after the mutation and
+        // outside the lock.
+        if changed {
+            WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+            NotificationCenter.default.post(name: textDidChangeNotification, object: nil)
+        }
+        return .applied(changed: changed)
+    }
+
+    /// Clear the dirty marker after a successful upload, but only if the cache
+    /// still equals the text that was actually written; a newer local edit keeps
+    /// the cache dirty so its own upload can follow.
+    static func clearDirty(ifTextEquals text: String) {
+        lock.lock()
+        if loadTextLocked() == text {
+            defaults.set(false, forKey: dirtyKey)
+        }
+        lock.unlock()
+    }
+
+    private static func loadTextLocked() -> String {
+        defaults.string(forKey: textKey) ?? ""
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct TinyTextApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
